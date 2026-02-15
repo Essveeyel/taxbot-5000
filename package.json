@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist -b gh-pages --no-history -r https://github.com/Essveeyel/taxbot-5000.git",
+    "deploy": "npm run build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
