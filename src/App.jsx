@@ -4,8 +4,11 @@ import taxbotNice from './assets/images/taxbotNice.png'
 import './App.css'
 
 function App() {
+  const defaultWelcomeMessage =
+    'Welcome to Taxbot-5000. Type anything to begin the scripted conversation.'
+  const defaultThemeTransitionMs = 9000
   const [initialStep, setInitialStep] = useState({
-    text: 'Welcome to Taxbot-5000. Type anything to begin the scripted conversation.',
+    text: defaultWelcomeMessage,
     evil: false,
   })
   const [scriptedResponses, setScriptedResponses] = useState([
@@ -24,10 +27,26 @@ function App() {
   const [userInput, setUserInput] = useState('')
   const [scriptIndex, setScriptIndex] = useState(0)
   const [currentStage, setCurrentStage] = useState(0)
+  const [typingTheme, setTypingTheme] = useState(null)
+  const [themeTransitionMs, setThemeTransitionMs] = useState(defaultThemeTransitionMs)
   const [isSidebarVisible, setIsSidebarVisible] = useState(true)
   const [isTaxbotTyping, setIsTaxbotTyping] = useState(false)
+  const [scriptTransferMessage, setScriptTransferMessage] = useState('')
   const replyTimeoutRef = useRef(null)
   const wordIntervalRef = useRef(null)
+  const themeShiftTimeoutRef = useRef(null)
+  const importInputRef = useRef(null)
+  const messagesContainerRef = useRef(null)
+
+  const scrollMessagesToBottom = () => {
+    const container = messagesContainerRef.current
+
+    if (!container) {
+      return
+    }
+
+    container.scrollTop = container.scrollHeight
+  }
 
   const usableScript = useMemo(
     () =>
@@ -38,12 +57,16 @@ function App() {
   )
 
   const isEvilTheme = useMemo(() => {
+    if (typeof typingTheme === 'boolean') {
+      return typingTheme
+    }
+
     if (currentStage === 0) {
       return initialStep.evil
     }
 
     return Boolean(usableScript[currentStage - 1]?.evil)
-  }, [currentStage, initialStep.evil, usableScript])
+  }, [currentStage, initialStep.evil, usableScript, typingTheme])
 
   const updateScriptLine = (index, value) => {
     setScriptedResponses((prev) =>
@@ -70,7 +93,7 @@ function App() {
     setScriptIndex((prev) => Math.max(0, Math.min(prev, usableScript.length - 1)))
   }
 
-  const resetConversation = () => {
+  const stopTypingTimers = () => {
     if (replyTimeoutRef.current) {
       clearTimeout(replyTimeoutRef.current)
       replyTimeoutRef.current = null
@@ -81,31 +104,40 @@ function App() {
       wordIntervalRef.current = null
     }
 
+    if (themeShiftTimeoutRef.current) {
+      clearTimeout(themeShiftTimeoutRef.current)
+      themeShiftTimeoutRef.current = null
+    }
+  }
+
+  const resetConversation = () => {
+    stopTypingTimers()
+
     setMessages([
       {
         role: 'assistant',
-        content:
-          initialStep.text.trim() ||
-          'Welcome to Taxbot-5000. Type anything to begin the scripted conversation.',
+        content: initialStep.text.trim() || defaultWelcomeMessage,
       },
     ])
     setUserInput('')
     setScriptIndex(0)
     setCurrentStage(0)
+    setTypingTheme(null)
+    setThemeTransitionMs(defaultThemeTransitionMs)
     setIsTaxbotTyping(false)
   }
 
   useEffect(() => {
     return () => {
-      if (replyTimeoutRef.current) {
-        clearTimeout(replyTimeoutRef.current)
-      }
-
-      if (wordIntervalRef.current) {
-        clearInterval(wordIntervalRef.current)
-      }
+      stopTypingTimers()
     }
   }, [])
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      scrollMessagesToBottom()
+    })
+  }, [messages, isTaxbotTyping])
 
   useEffect(() => {
     setMessages((prev) => {
@@ -119,8 +151,7 @@ function App() {
           {
             role: 'assistant',
             content:
-              initialStep.text.trim() ||
-              'Welcome to Taxbot-5000. Type anything to begin the scripted conversation.',
+              initialStep.text.trim() || defaultWelcomeMessage,
           },
         ]
       }
@@ -159,13 +190,28 @@ function App() {
     }
 
     const replyWords = scriptedReply.text.split(/\s+/).filter(Boolean)
+    const typingDurationMs = Math.max(replyWords.length * 120, 2400)
+    const themeTransitionDurationMs = Math.max(replyWords.length * 220, 7000)
 
     replyTimeoutRef.current = setTimeout(() => {
+      setThemeTransitionMs(themeTransitionDurationMs)
+
+      const transitionKickoffDelayMs = Math.max(
+        Math.min(Math.floor(typingDurationMs * 0.45), typingDurationMs - 400),
+        250,
+      )
+
+      themeShiftTimeoutRef.current = setTimeout(() => {
+        setTypingTheme(scriptedReply.evil)
+        themeShiftTimeoutRef.current = null
+      }, transitionKickoffDelayMs)
+
       setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
 
       if (replyWords.length === 0) {
         setMessages((prev) => [...prev.slice(0, -1), { role: 'assistant', content: scriptedReply.text }])
         setCurrentStage((prev) => Math.min(prev + 1, usableScript.length))
+        setTypingTheme(null)
         setIsTaxbotTyping(false)
         replyTimeoutRef.current = null
         return
@@ -196,6 +242,7 @@ function App() {
           clearInterval(wordIntervalRef.current)
           wordIntervalRef.current = null
           setCurrentStage((prev) => Math.min(prev + 1, usableScript.length))
+          setTypingTheme(null)
           setIsTaxbotTyping(false)
         }
       }, 120)
@@ -213,9 +260,106 @@ function App() {
     }
   }
 
+  const handleExportScript = () => {
+    const scriptPayload = {
+      version: 1,
+      tagline,
+      initialStep,
+      steps: scriptedResponses,
+    }
+
+    const blob = new Blob([JSON.stringify(scriptPayload, null, 2)], {
+      type: 'application/json',
+    })
+    const downloadUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = 'taxbot-script.json'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(downloadUrl)
+    setScriptTransferMessage('Script exported as taxbot-script.json')
+  }
+
+  const normalizeScriptStep = (step) => {
+    if (typeof step === 'string') {
+      return { text: step, evil: false }
+    }
+
+    if (step && typeof step === 'object') {
+      return {
+        text: typeof step.text === 'string' ? step.text : '',
+        evil: Boolean(step.evil),
+      }
+    }
+
+    return null
+  }
+
+  const handleImportScript = async (event) => {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    try {
+      const rawFile = await file.text()
+      const parsed = JSON.parse(rawFile)
+
+      const importedInitialRaw = parsed?.initialStep
+      const importedInitialStep =
+        typeof importedInitialRaw === 'string'
+          ? { text: importedInitialRaw, evil: false }
+          : normalizeScriptStep(importedInitialRaw)
+
+      const importedStepsRaw =
+        Array.isArray(parsed) ? parsed : parsed?.steps ?? parsed?.scriptedResponses ?? parsed?.script
+
+      if (!Array.isArray(importedStepsRaw)) {
+        throw new Error('Missing steps array')
+      }
+
+      const importedSteps = importedStepsRaw
+        .map((step) => normalizeScriptStep(step))
+        .filter((step) => Boolean(step))
+
+      if (importedSteps.length === 0) {
+        throw new Error('No valid script steps found')
+      }
+
+      const nextInitialStep = importedInitialStep ?? { text: defaultWelcomeMessage, evil: false }
+
+      setTagline(typeof parsed?.tagline === 'string' ? parsed.tagline : tagline)
+      setInitialStep(nextInitialStep)
+      setScriptedResponses(importedSteps)
+
+      stopTypingTimers()
+      setMessages([
+        {
+          role: 'assistant',
+          content: nextInitialStep.text.trim() || defaultWelcomeMessage,
+        },
+      ])
+      setUserInput('')
+      setScriptIndex(0)
+      setCurrentStage(0)
+      setTypingTheme(null)
+      setThemeTransitionMs(defaultThemeTransitionMs)
+      setIsTaxbotTyping(false)
+      setScriptTransferMessage(`Imported script from ${file.name}`)
+    } catch {
+      setScriptTransferMessage('Import failed. Please use a valid JSON script file.')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
   return (
     <div
       className={`app-shell ${isSidebarVisible ? '' : 'sidebar-hidden'} ${isEvilTheme ? 'evil-mode' : ''}`}
+      style={{ '--theme-transition-ms': `${themeTransitionMs}ms` }}
     >
       <button
         type="button"
@@ -239,6 +383,7 @@ function App() {
             onChange={(event) => setTagline(event.target.value)}
             placeholder="Enter predetermined tagline"
           />
+          {scriptTransferMessage && <p className="script-transfer-message">{scriptTransferMessage}</p>}
         </div>
 
         <div className="script-list">
@@ -307,6 +452,23 @@ function App() {
           <button type="button" className="ghost-button" onClick={resetConversation}>
             Reset Chat
           </button>
+          <button type="button" className="ghost-button" onClick={handleExportScript}>
+            Export Script
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => importInputRef.current?.click()}
+          >
+            Import Script
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="file-input-hidden"
+            onChange={handleImportScript}
+          />
         </div>
       </aside>
 
@@ -321,17 +483,19 @@ function App() {
           </div>
         </header>
 
-        <section className="messages" aria-live="polite">
-          {messages.map((message, index) => (
-            <article key={`${message.role}-${index}`} className={`message message-${message.role}`}>
-              <p>{message.content}</p>
-            </article>
-          ))}
-          {isTaxbotTyping && (
-            <article className="message message-assistant message-typing" aria-label="Taxbot is typing">
-              <p>Taxbot-5000 is typing…</p>
-            </article>
-          )}
+        <section className="messages" aria-live="polite" ref={messagesContainerRef}>
+          <div className="messages-track">
+            {messages.map((message, index) => (
+              <article key={`${message.role}-${index}`} className={`message message-${message.role}`}>
+                <p>{message.content}</p>
+              </article>
+            ))}
+            {isTaxbotTyping && (
+              <article className="message message-assistant message-typing" aria-label="Taxbot is typing">
+                <p>Taxbot-5000 is typing…</p>
+              </article>
+            )}
+          </div>
         </section>
 
         <footer className="composer">

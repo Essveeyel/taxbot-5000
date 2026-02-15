@@ -1,5 +1,6 @@
 #root {
   height: 100vh;
+  height: 100dvh;
 }
 
 .app-shell {
@@ -7,7 +8,9 @@
   --bg-panel: #0b1220;
   --bg-surface: #111827;
   --bg-input: #0f172a;
-  --bg-messages: linear-gradient(180deg, #111827, #0f172a);
+  --bg-messages-base: linear-gradient(180deg, #3a1018 0%, #190508 65%);
+  --bg-messages-overlay: linear-gradient(180deg, #111827, #0f172a);
+  --messages-overlay-opacity: 1;
   --border-color: #1f2937;
   --border-soft: #334155;
   --text-main: #e5e7eb;
@@ -17,23 +20,27 @@
   --user-bubble: #1d4ed8;
   --assistant-bubble: #1f2937;
   --danger-glow: transparent;
+  --theme-transition-ms: 9000ms;
 
   height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-columns: 360px 1fr;
   background: var(--bg-main);
   color: var(--text-main);
   position: relative;
+  overflow: hidden;
 }
 
 .app-shell,
 .app-shell * {
   transition:
-    background-color 9s cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 9s cubic-bezier(0.16, 1, 0.3, 1),
-    color 9s cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 10.5s cubic-bezier(0.16, 1, 0.3, 1),
-    filter 10.5s cubic-bezier(0.16, 1, 0.3, 1);
+    background var(--theme-transition-ms) cubic-bezier(0.16, 1, 0.3, 1),
+    background-color var(--theme-transition-ms) cubic-bezier(0.16, 1, 0.3, 1),
+    border-color var(--theme-transition-ms) cubic-bezier(0.16, 1, 0.3, 1),
+    color var(--theme-transition-ms) cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow var(--theme-transition-ms) cubic-bezier(0.16, 1, 0.3, 1),
+    filter var(--theme-transition-ms) cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app-shell.evil-mode {
@@ -41,7 +48,7 @@
   --bg-panel: #23090e;
   --bg-surface: #2a0d12;
   --bg-input: #2e1116;
-  --bg-messages: radial-gradient(circle at top, #3a1018 0%, #190508 65%);
+  --messages-overlay-opacity: 0;
   --border-color: #5a141f;
   --border-soft: #7f1d1d;
   --text-main: #ffe4e6;
@@ -97,6 +104,12 @@
   background: var(--bg-input);
   color: var(--text-main);
   padding: 0.55rem;
+}
+
+.script-transfer-message {
+  margin: 0.6rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .sidebar-icon-toggle {
@@ -205,10 +218,16 @@ button:hover {
   gap: 0.5rem;
 }
 
+.file-input-hidden {
+  display: none;
+}
+
 .chat-panel {
   display: grid;
   grid-template-rows: auto 1fr auto;
   height: 100%;
+  min-height: 0;
+  background: var(--bg-main);
 }
 
 .chat-header {
@@ -247,32 +266,34 @@ button:hover {
 }
 
 .messages {
-  padding: 1rem 1.25rem;
+  min-height: 0;
   overflow-y: auto;
+  position: relative;
+}
+
+.messages-track {
+  position: relative;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  background: linear-gradient(180deg, #111827, #0f172a);
-  position: relative;
+  padding: 1rem 1.25rem;
+  background: var(--bg-messages-base);
   isolation: isolate;
 }
 
-.messages::before {
+.messages-track::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at top, #3a1018 0%, #190508 65%);
-  opacity: 0;
-  pointer-events: none;
   z-index: 0;
-  transition: opacity 11s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+  background: var(--bg-messages-overlay);
+  opacity: var(--messages-overlay-opacity);
+  transition: opacity var(--theme-transition-ms) cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.app-shell.evil-mode .messages::before {
-  opacity: 1;
-}
-
-.messages > * {
+.messages-track > * {
   position: relative;
   z-index: 1;
 }
@@ -314,24 +335,50 @@ button:hover {
   border-top: 1px solid var(--border-color);
   padding: 0.8rem 1.25rem;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.75rem;
-  align-items: end;
+  align-items: stretch;
+  background: color-mix(in srgb, var(--bg-panel) 75%, transparent);
 }
 
 .composer textarea {
+  margin: 0;
+  box-sizing: border-box;
   min-height: 2.75rem;
   max-height: 10rem;
+  resize: none;
+}
+
+.composer button {
+  margin: 0;
+  min-height: 2.75rem;
+  align-self: stretch;
+  white-space: nowrap;
 }
 
 @media (max-width: 950px) {
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(220px, 35vh) 1fr;
+    grid-template-rows: 1fr;
   }
 
   .script-panel {
     border-right: none;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: none;
+    height: 100%;
+  }
+
+  .app-shell:not(.sidebar-hidden) .chat-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .composer button {
+    width: 100%;
   }
 }
